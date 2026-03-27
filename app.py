@@ -6,8 +6,9 @@ from PIL import Image
 from streamlit_image_coordinates import streamlit_image_coordinates
 
 st.set_page_config(page_title="PDF職人", layout="wide")
-st.title("🎯 PDF直感ハンコ押し機 (エラー修正済・完成版)")
+st.title("🎯 PDF直感ハンコ押し機 (完全修正・完成版)")
 
+# 十字カーソルのCSS
 st.markdown("<style>.stImage { cursor: crosshair; border: 1px solid #ccc; }</style>", unsafe_allow_html=True)
 
 uploaded_file = st.file_uploader("PDFをアップロードしてな", type="pdf")
@@ -22,6 +23,7 @@ if uploaded_file:
     page = doc_temp[page_num - 1]
     rect = page.rect
 
+    # ページごとに座標を管理
     x_key = f"pdf_x_{page_num}"
     y_key = f"pdf_y_{page_num}"
     click_key = f"last_click_{page_num}"
@@ -50,21 +52,22 @@ if uploaded_file:
         }]
         stamper.apply_stamps(stamp_data)
         
+        # 【修正】表示行列を正しく作成（拡大 + ページ回転）
         zoom = 1.5
-        # display_mat: 内部座標を画面表示座標に変換する行列
-        display_mat = page.get_matrix() @ fitz.Matrix(zoom, zoom)
+        display_mat = fitz.Matrix(zoom, zoom).prerotate(page.rotation)
+        
         pix = preview_doc[page_num - 1].get_pixmap(matrix=display_mat)
         img = Image.open(io.BytesIO(pix.tobytes()))
 
     st.subheader(f"📄 {page_num} ページ目： クリックした場所にハンコが移動するで！")
     
-    # 座標取得コンポーネント
-    value = streamlit_image_coordinates(img, key=f"coords_fix_final_{page_num}")
+    # 座標取得コンポーネント（keyは常に新しいものにして安定化）
+    value = streamlit_image_coordinates(img, key=f"coords_v5_{page_num}")
 
     if value and value != st.session_state[click_key]:
-        # クリック座標を逆行列で変換
+        # クリック座標を逆算
         click_point = fitz.Point(value["x"], value["y"])
-        # ~演算子を使って逆行列を適用（ここが修正ポイント！）
+        # ~演算子（逆行列）で内部物理座標に変換
         pdf_point = click_point * ~display_mat
         
         st.session_state[x_key] = pdf_point.x
@@ -82,6 +85,6 @@ if uploaded_file:
         final_stamper.apply_stamps(stamp_data, final_path)
         
         with open(final_path, "rb") as f:
-            st.sidebar.download_button("✅ 完成版をダウンロード", f, file_name="stamped_document.pdf")
+            st.sidebar.download_button("✅ ダウンロード", f, file_name="stamped.pdf")
     
     doc_temp.close()
