@@ -1,68 +1,61 @@
 import streamlit as st
-import fitz  # PyMuPDF
+import fitz
 from stamper import PdfStamper
-from PIL import Image, ImageDraw
 import io
+from PIL import Image
 
 st.set_page_config(page_title="PDF職人", layout="wide")
-st.title("🎯 PDFハンコプレビュー機")
+st.title("🎯 PDFハンコプレビュー機 (A3横・回転完全対応)")
 
-# 1. ファイルアップロード
 uploaded_file = st.file_uploader("PDFをアップロードしてな", type="pdf")
 
 if uploaded_file:
-    # PDFをメモリに読み込む
+    # 1. データを読み込む
     pdf_bytes = uploaded_file.read()
-    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     
-    # サイドバーで操作
+    # サイドバー設定
     st.sidebar.header("🛠 調整パネル")
-    page_num = st.sidebar.number_input("ページ選択", min_value=1, max_value=len(doc), value=1)
+    doc_temp = fitz.open(stream=pdf_bytes, filetype="pdf")
+    page_num = st.sidebar.number_input("ページ選択", min_value=1, max_value=len(doc_temp), value=1)
     
-    # ページ情報を取得
-    page = doc[page_num - 1]
-    w, h = page.rect.width, page.rect.height
-    
-    # 座標・大きさ・回転の調整
+    # ページ情報を取得して、スライダーの最大値を決める
+    page = doc_temp[page_num - 1]
+    # 見た目上の幅と高さを取得（回転考慮済み）
+    rect = page.rect
+    w, h = rect.width, rect.height
+
     x = st.sidebar.slider("横位置 (x)", 0.0, float(w), float(w/2))
     y = st.sidebar.slider("縦位置 (y)", 0.0, float(h), float(h/2))
     scale = st.sidebar.slider("大きさ倍率", 0.5, 3.0, 1.0)
-    rot = st.sidebar.selectbox("回転角", [0, 90, 180, 270])
+    rot = st.sidebar.selectbox("ハンコの向き(度)", [0, 90, 180, 270])
     name = st.sidebar.text_input("名前", value="中部")
+    doc_temp.close()
 
-    # --- プレビュー生成 ---
-    # ページを画像に変換
-    pix = page.get_pixmap()
-    img = Image.open(io.BytesIO(pix.tobytes()))
-    draw = ImageDraw.Draw(img)
-    
-    # プレビュー用の赤い円を描画（ハンコの目安）
-    r = 30 * scale
-    draw.ellipse([x-r, y-r, x+r, y+r], outline="red", width=3)
-    # 中心点
-    draw.point([x, y], fill="red")
+    # --- プレビュー生成 (WYSIWYG方式) ---
+    # メモリ上でPDFを開き直して、実際に描画してみる
+    with fitz.open(stream=pdf_bytes, filetype="pdf") as preview_doc:
+        stamper = PdfStamper(None)
+        stamper.doc = preview_doc
+        stamp_data = [{'pNum': page_num, 'x': x, 'y': y, 'scale': scale, 'rot': rot, 'name': name}]
+        
+        # 実際にPDFに描き込む（保存はしない）
+        stamper.apply_stamps(stamp_data)
+        
+        # 描き込んだページを画像化
+        pix = preview_doc[page_num - 1].get_pixmap(matrix=fitz.Matrix(2, 2)) # 高画質プレビュー
+        img = Image.open(io.BytesIO(pix.tobytes()))
 
-    # メイン画面にプレビューを表示
     st.subheader(f"📄 プレビュー ({page_num} ページ目)")
-    st.image(img, use_container_width=True, caption="赤い円がハンコの位置やで")
+    st.image(img, use_container_width=True)
 
-    # 3. 実行ボタン
-    if st.sidebar.button("🚀 この位置でPDFを書き出す"):
-        with st.spinner("職人がハンコ押しとるから待ってな..."):
-            # 一時ファイルに保存して処理
-            with open("input_temp.pdf", "wb") as f:
-                f.write(pdf_bytes)
-            
-            stamper = PdfStamper("input_temp.pdf")
-            stamp_list = [{'pNum': page_num, 'x': x, 'y': y, 'scale': scale, 'rot': rot, 'name': name}]
-            
-            output_path = "stamped_output.pdf"
-            stamper.apply_stamps(stamp_list, output_path)
-            
-            with open(output_path, "rb") as f:
-                st.sidebar.download_button(
-                    label="✅ 完成版をダウンロード",
-                    data=f,
-                    file_name="stamped_document.pdf",
-                    mime="application/pdf"
-                )
+    # 保存処理
+    if st.sidebar.button("🚀 この位置でPDFを保存"):
+        # 実際のファイルとして書き出し
+        with open("input_temp.pdf", "wb") as f:
+            f.write(pdf_bytes)
+        
+        final_stamper = PdfStamper("input_temp.pdf")
+        final_stamper.apply_stamps(stamp_data, "stamped_final.pdf")
+        
+        with open("stamped_final.pdf", "rb") as f:
+            st.sidebar.download_button("✅ 完成版をダウンロード", f, file_name="stamped.pdf")
