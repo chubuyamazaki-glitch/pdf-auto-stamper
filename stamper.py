@@ -18,49 +18,55 @@ class PdfStamper:
             center = fitz.Point(data['x'], data['y'])
             
             S = data['scale']
-            # ユーザー指定の回転
             user_rot = data.get('rot', 0)
-            # 内部描画用の行列（物理座標系での回転）
-            total_rot_internal = (user_rot - p_rot) % 360
-            mat = fitz.Matrix(total_rot_internal).prescale(S, S)
             
-            # 1. 円と線の描画
+            # 内部描画用マトリックス（中心を軸に回転・拡大）
+            internal_rot = (user_rot - p_rot) % 360
+            mat = fitz.Matrix(internal_rot).prescale(S, S)
+            
+            # 1. 円(半径30)と区切り線(y=±8)の描画
             page.draw_circle(center, 30 * S, color=(1, 0, 0), width=1.5)
             line_y = 8
             page.draw_line(center + fitz.Point(-28, -line_y) * mat, center + fitz.Point(28, -line_y) * mat, color=(1, 0, 0), width=1)
             page.draw_line(center + fitz.Point(-28,  line_y) * mat, center + fitz.Point(28,  line_y) * mat, color=(1, 0, 0), width=1)
 
-            # 2. テキスト描画設定
-            # 見た目上の回転（PDFの回転フラグを加味）
+            # 2. テキスト描画（見た目上の回転を加味）
             text_rot = (user_rot + p_rot) % 360
             base_fs = 10
             font_en = fitz.Font("helv")
             font_jp = fitz.Font("china-ss")
 
-            # --- 核心：回転対応のセンター配置関数 ---
-            def insert_centered_text(text, font, rel_y, fs_mod=1.0):
+            def insert_fixed_text(text, font, target_y, fs_mod=1.0):
                 fs = base_fs * fs_mod
-                # 文字の幅と高さを取得（フォント固有のメトリクスを使用）
+                # 文字の幅を取得
                 tw = font.text_length(text, fontsize=fs)
-                # ascent (ベースラインから上) と descent (ベースラインから下) から中央を算出
-                th = (font.ascent - font.descent) * fs / 1000 
                 
-                # 【ここが修正のキモ！】
-                # 1. まず、未回転状態での「理想の挿入起点」を計算する
-                #    x: 中心から幅の半分戻す / y: 指定位置から文字の高さの半分（視覚的補正）下げる
-                origin_rel = fitz.Point(-tw / 2, rel_y + (th / 3))
+                # 【ここが修正の核心】
+                # 文字の「高さ」を考慮して、ベースラインを垂直方向の中央に補正
+                # 一般的なフォントでは ascent の約半分(0.35倍程度)が視覚的な中心
+                v_offset = fs * 0.35 
                 
-                # 2. その相対座標を行列で回転・拡大させる
-                # 3. 最後にハンコの中心（center）に足す
-                final_origin = center + origin_rel * mat
+                # 0度状態での「中心からの相対座標」を算出
+                # x: 半分の幅だけ左へ / y: 各段のセンター位置からベースライン補正分だけ下へ
+                rel_origin = fitz.Point(-tw / 2, target_y + v_offset)
                 
-                page.insert_text(final_origin, text, fontsize=fs * S, 
-                                 color=(1,0,0), rotate=text_rot, fontname=font.name)
+                # その「点」を行列で回転・拡大させ、ハンコの物理中心に加える
+                final_origin = center + rel_origin * mat
+                
+                page.insert_text(
+                    final_origin, 
+                    text, 
+                    fontsize=fs * S, 
+                    color=(1,0,0), 
+                    rotate=text_rot, 
+                    fontname=font.name
+                )
 
-            # 3. 各段の配置（rel_yは各セクションの中心目安）
-            insert_centered_text("CHUBU", font_en, -18)
-            insert_centered_text(self.today, font_en, 0, fs_mod=0.8)
-            insert_centered_text(data.get('name', '名前'), font_jp, 18)
+            # 3. 各段の配置（上段、中段、下段）
+            # 円の半径30、線が±8なので、各エリアの中央は ±19 付近
+            insert_fixed_text("CHUBU", font_en, -19)
+            insert_fixed_text(self.today, font_en, 0, fs_mod=0.8)
+            insert_fixed_text(data.get('name', '名前'), font_jp, 19)
 
         if output_path:
             self.doc.save(output_path)
