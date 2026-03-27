@@ -3,7 +3,6 @@ import datetime
 
 class PdfStamper:
     def __init__(self, input_path):
-        # input_pathがある時だけ開き、なければNone（後からセット可能）
         self.doc = fitz.open(input_path) if input_path else None
         self.today = datetime.date.today().strftime("%Y.%m.%d")
 
@@ -19,7 +18,7 @@ class PdfStamper:
             p_rot = page.rotation
             center = fitz.Point(data['x'], data['y'])
             
-            # 描画行列の作成
+            # 描画行列の作成（ページの回転を考慮）
             total_rot = (data.get('rot', 0) - p_rot) % 360
             mat = fitz.Matrix(total_rot).prescale(data['scale'], data['scale'])
             
@@ -34,7 +33,7 @@ class PdfStamper:
             page.draw_line(p1_1, p1_2, color=(1, 0, 0), width=1)
             page.draw_line(p2_1, p2_2, color=(1, 0, 0), width=1)
 
-            # テキスト (文字の向きは PDFの回転 + 指定の回転)
+            # テキスト
             text_rot = (data.get('rot', 0) + p_rot) % 360
             fs = 10 * data['scale']
             page.insert_text(center + fitz.Point(-15, -12) * mat, "CHUBU", fontsize=fs, color=(1,0,0), rotate=text_rot)
