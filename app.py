@@ -58,7 +58,7 @@ if uploaded_file:
 
     st.subheader(f"📄 {page_num} ページ目： クリックした場所にハンコが移動するで！")
     
-    # 座標取得コンポーネント（安定版）
+    # 座標取得コンポーネント
     value = streamlit_image_coordinates(img, key=f"coords_fix_final_{page_num}")
 
     if value and value != st.session_state[click_key]:
