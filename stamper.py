@@ -20,7 +20,7 @@ class PdfStamper:
             S = data['scale']
             user_rot = data.get('rot', 0)
             
-            # 内部描画用マトリックス（中心を軸に回転・拡大）
+            # 内部描画用行列（中心を軸に回転・拡大）
             internal_rot = (user_rot - p_rot) % 360
             mat = fitz.Matrix(internal_rot).prescale(S, S)
             
@@ -30,43 +30,43 @@ class PdfStamper:
             page.draw_line(center + fitz.Point(-28, -line_y) * mat, center + fitz.Point(28, -line_y) * mat, color=(1, 0, 0), width=1)
             page.draw_line(center + fitz.Point(-28,  line_y) * mat, center + fitz.Point(28,  line_y) * mat, color=(1, 0, 0), width=1)
 
-            # 2. テキスト描画（見た目上の回転を加味）
+            # 2. テキスト設定
             text_rot = (user_rot + p_rot) % 360
             base_fs = 10
-            font_en = fitz.Font("helv")
-            font_jp = fitz.Font("china-ss")
+            
+            # フォントオブジェクト（幅計算用）
+            f_en = fitz.Font("helv")
+            f_jp = fitz.Font("china-ss")
 
-            def insert_fixed_text(text, font, target_y, fs_mod=1.0):
+            # --- 垂直センター補正付き挿入関数 ---
+            def insert_fixed_text(text, font_obj, alias_name, target_y, fs_mod=1.0):
                 fs = base_fs * fs_mod
-                # 文字の幅を取得
-                tw = font.text_length(text, fontsize=fs)
+                # 文字幅を取得
+                tw = font_obj.text_length(text, fontsize=fs)
                 
-                # 【ここが修正の核心】
-                # 文字の「高さ」を考慮して、ベースラインを垂直方向の中央に補正
-                # 一般的なフォントでは ascent の約半分(0.35倍程度)が視覚的な中心
+                # ベースライン補正（文字の高さの約35%分、下にずらすと視覚的に中央に来る）
                 v_offset = fs * 0.35 
                 
-                # 0度状態での「中心からの相対座標」を算出
-                # x: 半分の幅だけ左へ / y: 各段のセンター位置からベースライン補正分だけ下へ
+                # 未回転状態での「中心からの相対座標」
                 rel_origin = fitz.Point(-tw / 2, target_y + v_offset)
                 
-                # その「点」を行列で回転・拡大させ、ハンコの物理中心に加える
+                # 物理座標への変換
                 final_origin = center + rel_origin * mat
                 
+                # 実際の描画。fontnameにはエイリアス名を直接渡す（これでエラー回避！）
                 page.insert_text(
                     final_origin, 
                     text, 
                     fontsize=fs * S, 
                     color=(1,0,0), 
                     rotate=text_rot, 
-                    fontname=font.name
+                    fontname=alias_name
                 )
 
             # 3. 各段の配置（上段、中段、下段）
-            # 円の半径30、線が±8なので、各エリアの中央は ±19 付近
-            insert_fixed_text("CHUBU", font_en, -19)
-            insert_fixed_text(self.today, font_en, 0, fs_mod=0.8)
-            insert_fixed_text(data.get('name', '名前'), font_jp, 19)
+            insert_fixed_text("CHUBU", f_en, "helv", -19)
+            insert_fixed_text(self.today, f_en, "helv", 0, fs_mod=0.8)
+            insert_fixed_text(data.get('name', '名前'), f_jp, "china-ss", 19)
 
         if output_path:
             self.doc.save(output_path)
