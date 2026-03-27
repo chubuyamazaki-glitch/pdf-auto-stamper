@@ -15,53 +15,56 @@ class PdfStamper:
             if p_idx >= len(self.doc): continue
             
             page = self.doc[p_idx]
-            p_rot = page.rotation
-            center = fitz.Point(data['x'], data['y'])
+            p_rot = page.rotation # PDFが元々持っている回転
+            center = fitz.Point(data['x'], data['y']) # ハンコの中心
             
             S = data['scale']
-            user_rot = data.get('rot', 0)
+            user_rot = data.get('rot', 0) # 0, 90, 180, 270
             
-            # 内部描画用マトリックス
-            # PDFはY軸が上向きなので、それに合わせた回転・拡大を行う
+            # 1. 内部の描画行列 (物理座標系)
+            # PDFの描画は「物理的な紙面」に対して行うため、表示上の回転を差し引く
             internal_rot = (user_rot - p_rot) % 360
             mat = fitz.Matrix(internal_rot).prescale(S, S)
             
-            # 1. 円(半径30)と区切り線(y=±8)の描画
-            # PDF座標系(Y上向き)なので +8が上線、-8が下線
+            # 円(R=30)と区切り線(Y=±8)の描画
+            # PDF座標系は Y軸が上向きなので、+8が上、-8が下
             page.draw_circle(center, 30 * S, color=(1, 0, 0), width=1.5)
             page.draw_line(center + fitz.Point(-28, 8) * mat, center + fitz.Point(28, 8) * mat, color=(1, 0, 0), width=1)
             page.draw_line(center + fitz.Point(-28, -8) * mat, center + fitz.Point(28, -8) * mat, color=(1, 0, 0), width=1)
 
-            # 2. テキスト設定
+            # 2. テキスト描画設定
+            # 見た目上の回転（PDFの回転フラグを加味）
             text_rot = (user_rot + p_rot) % 360
             base_fs = 10
             f_en = fitz.Font("helv")
             f_jp = fitz.Font("china-ss")
 
-            # --- 核心：回転を考慮した中心座標の算出 ---
-            def insert_centered_text(text, font_obj, alias, dy, fs_mod=1.0):
+            def insert_centered_text(text, font_obj, alias, dy_offset, fs_mod=1.0):
                 fs = base_fs * fs_mod
-                # 文字の幅と視覚的な高さ（中央補正用）
+                # 文字の幅と視覚的な高さを取得
                 tw = font_obj.text_length(text, fontsize=fs)
-                th = fs * 0.7  # フォントの高さの約70%を実質的な高さとする
+                th = fs * 0.7 
                 
-                # 回転角度（ラジアン）
-                rad = math.radians(text_rot)
-                cos_a = math.cos(rad)
-                sin_a = math.sin(rad)
+                # --- 【核心】回転角度ごとの起点(rx, ry)の算出 ---
+                # insert_textは「左下(baseline)」を起点に、指定角度回転させる仕様。
+                # 文字の中心をターゲットに重ねるための「0度状態での相対起点」を計算する。
+                if user_rot == 0:
+                    rx, ry = -tw/2, -th/2
+                elif user_rot == 90:
+                    rx, ry = th/2, -tw/2
+                elif user_rot == 180:
+                    rx, ry = tw/2, th/2
+                elif user_rot == 270:
+                    rx, ry = -th/2, tw/2
+                else:
+                    # 任意角の場合の一般式
+                    rad = math.radians(user_rot)
+                    rx = -(tw/2)*math.cos(rad) + (th/2)*math.sin(rad)
+                    ry = -(tw/2)*math.sin(rad) - (th/2)*math.cos(rad)
 
-                # ターゲットとなる「その段の中心点」
-                # PDF座標系(Y上向き)に合わせて dy を計算
-                target_p = center + fitz.Point(0, dy) * mat
-                
-                # 【ここが修正のキモ！】
-                # rotate=text_rot を指定した insert_text は「左下(baseline)」を軸に回る。
-                # その「左下」がどこにあれば、回転後に文字のセンターが target_p に来るかを算出する。
-                # PDFのY軸(上向き)を考慮した幾何学補正
-                ox = -(tw / 2) * cos_a + (th / 2) * sin_a
-                oy = -(tw / 2) * sin_a - (th / 2) * cos_a
-                
-                final_origin = target_p + fitz.Point(ox, oy)
+                # 物理座標への最終的な挿入ポイント
+                # 0度状態の「dy_offset」と「回転補正(rx, ry)」を合算し、行列で一気に回す
+                final_origin = center + fitz.Point(rx, dy_offset + ry) * mat
                 
                 page.insert_text(
                     final_origin, text, 
@@ -69,10 +72,10 @@ class PdfStamper:
                     rotate=text_rot, fontname=alias
                 )
 
-            # 3. 各段の配置（PDF座標系: 上はプラス、下はマイナス）
-            insert_centered_text("CHUBU", f_en, "helv", 19)
+            # 3. 三段の配置 (PDF座標系に合わせて上がプラス)
+            insert_centered_text("CHUBU", f_en, "helv", 18)
             insert_centered_text(self.today, f_en, "helv", 0, fs_mod=0.8)
-            insert_centered_text(data.get('name', '名前'), f_jp, "china-ss", -19)
+            insert_centered_text(data.get('name', '名前'), f_jp, "china-ss", -18)
 
         if output_path:
             self.doc.save(output_path)
