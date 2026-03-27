@@ -7,8 +7,7 @@ class PdfStamper:
         self.today = datetime.date.today().strftime("%Y.%m.%d")
 
     def apply_stamps(self, stamp_list, output_path=None):
-        if not self.doc:
-            return None
+        if not self.doc: return None
             
         for data in stamp_list:
             p_idx = data['pNum'] - 1
@@ -18,7 +17,9 @@ class PdfStamper:
             p_rot = page.rotation
             center = fitz.Point(data['x'], data['y'])
             
-            # 描画行列の作成（ページの回転を考慮）
+            # ハンコ自体の向き：ユーザー指定分 - ページの回転分（これで打ち消し）
+            # ですが、描画自体は「物理座標」に対して行うので、
+            # 物理座標から見た「見た目上の真っ直ぐ」を計算します。
             total_rot = (data.get('rot', 0) - p_rot) % 360
             mat = fitz.Matrix(total_rot).prescale(data['scale'], data['scale'])
             
@@ -26,14 +27,10 @@ class PdfStamper:
             page.draw_circle(center, 30 * data['scale'], color=(1, 0, 0), width=1.5)
             
             # 2本線
-            p1_1 = center + fitz.Point(-28, -8) * mat
-            p1_2 = center + fitz.Point( 28, -8) * mat
-            p2_1 = center + fitz.Point(-28,  5) * mat
-            p2_2 = center + fitz.Point( 28,  5) * mat
-            page.draw_line(p1_1, p1_2, color=(1, 0, 0), width=1)
-            page.draw_line(p2_1, p2_2, color=(1, 0, 0), width=1)
+            page.draw_line(center + fitz.Point(-28, -8) * mat, center + fitz.Point(28, -8) * mat, color=(1, 0, 0), width=1)
+            page.draw_line(center + fitz.Point(-28,  5) * mat, center + fitz.Point(28,  5) * mat, color=(1, 0, 0), width=1)
 
-            # テキスト
+            # テキスト（向きは見た目上の真っ直ぐに、ページ回転を足す）
             text_rot = (data.get('rot', 0) + p_rot) % 360
             fs = 10 * data['scale']
             page.insert_text(center + fitz.Point(-15, -12) * mat, "CHUBU", fontsize=fs, color=(1,0,0), rotate=text_rot)
